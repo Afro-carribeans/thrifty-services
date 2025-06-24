@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma/prisma/client"
+}
+
+datasource db {
+  provider = "cockroachdb"
+  url      = env("DATABASE_URL")
+}
+
+enum crdb_internal_region {
+  gcp_europe_west3 @map("gcp-europe-west3")
+}
+
+model Referral {
+  id          String   @id @default(uuid())
+  userId      String
+  refreeEmail String
+  status      String
+  bonusAmount Float
+  createdAt   DateTime @default(now()) @map("createIdx")
+  updatedAt   DateTime @updatedAt @map("updateIdx")
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model ProfitShare {
+  id            String   @id @default(uuid())
+  period        DateTime
+  userId        String
+  amount        Float
+  comment       String?
+  status        String
+  cooperativeId String
+  createdAt     DateTime @default(now()) @map("createIdx")
+  updatedAt     DateTime @updatedAt @map("updateIdx")
+
+  user        User        @relation(fields: [userId], references: [id])
+  cooperative Cooperative @relation(fields: [cooperativeId], references: [id])
+}
+
+model UserGroup {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  creator     String
+  role        String
+  createdAt   DateTime @default(now()) @map("createIdx")
+  updatedAt   DateTime @updatedAt @map("updateIdx")
+
+  user User @relation(fields: [creator], references: [id])
+}
+
+model User {
+  id              String   @id @default(uuid())
+  firstName       String
+  lastName        String
+  password        String
+  address         Json
+  email           String   @unique
+  phone           String
+  profileImg      String
+  memberOf        Json
+  status          String
+  verified        Boolean
+  termAccepted    Boolean
+  authenticatorId String
+  bankInfo        Json
+  createdAt       DateTime @default(now()) @map("createIdx")
+  updatedAt       DateTime @updatedAt @map("updateIdx")
+
+  groups        UserGroup[]
+  contributions Contribution[]
+  loans         Loan[]
+  payments      Payment[]
+  repayments    Repayment[]
+  Referral      Referral[]
+  ProfitShare   ProfitShare[]
+}
+
+model Cooperative {
+  id            String         @id @default(uuid())
+  name          String
+  contactPerson String
+  status        String
+  verified      Boolean
+  description   String?
+  isPublic      Boolean        @map("inPublic")
+  creator       String
+  createdAt     DateTime       @default(now()) @map("createIdx")
+  updatedAt     DateTime       @updatedAt @map("updateIdx")
+  ProfitShare   ProfitShare[]
+  Contribution  Contribution[]
+  Loan          Loan[]
+}
+
+model Contribution {
+  id            String   @id @default(uuid())
+  userId        String
+  amount        Float
+  isActive      Boolean
+  cooperativeId String
+  frequency     String
+  status        String
+  paymentId     String?
+  paymentMethod String?
+  createdAt     DateTime @default(now()) @map("createIdx")
+  updatedAt     DateTime @updatedAt @map("updateIdx")
+
+  user        User        @relation(fields: [userId], references: [id])
+  cooperative Cooperative @relation(fields: [cooperativeId], references: [id])
+}
+
+model Loan {
+  id              String   @id @default(uuid())
+  beneficiaryId   String
+  amount          Float
+  comment         String?
+  purpose         String?
+  status          String
+  repaymentPeriod String?
+  term            String?
+  interestRate    Float?   @map("finetestRiske")
+  guaranteed      Boolean?
+  dueDate         DateTime @map("dinDate")
+  payments        String
+  paymentId       String?
+  cooperativeId   String
+  createdAt       DateTime @default(now()) @map("createIdx")
+  updatedAt       DateTime @updatedAt @map("updateIdx")
+
+  beneficiary User        @relation(fields: [beneficiaryId], references: [id])
+  cooperative Cooperative @relation(fields: [cooperativeId], references: [id])
+  Repayment   Repayment[]
+}
+
+model Payment {
+  id        String   @id @default(uuid())
+  payeeId   String
+  payerId   String
+  amount    Float
+  comment   String?
+  status    String
+  createdAt DateTime @default(now()) @map("createIdx")
+  updatedAt DateTime @updatedAt @map("updateIdx")
+
+  User   User?   @relation(fields: [userId], references: [id])
+  userId String?
+}
+
+model Repayment {
+  id        String   @id @default(uuid())
+  payeeId   String
+  payerId   String
+  amount    Float
+  dueDate   DateTime @map("dinDate")
+  loanId    String?  @map("bankId")
+  status    String
+  payments  String?
+  createdAt DateTime @default(now()) @map("createIdx")
+  updatedAt DateTime @updatedAt @map("updateIdx")
+
+  loan   Loan?   @relation(fields: [loanId], references: [id])
+  User   User?   @relation(fields: [userId], references: [id])
+  userId String?
+}
