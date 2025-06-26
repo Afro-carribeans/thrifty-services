@@ -1,9 +1,7 @@
 import Hapi from '@hapi/hapi';
 import Joi from 'joi';
-import { PrismaClient } from '@prisma/client';
 import { createUserSchema, updateUserSchema } from '../validations/user';
-
-const prisma = new PrismaClient();
+import { PrismaClient } from '@prisma/client';
 
 declare module '@hapi/hapi' {
     interface ServerApplicationState {
@@ -14,11 +12,7 @@ declare module '@hapi/hapi' {
 const UserRoutePlugin: Hapi.Plugin<null> = {
     name: 'userRoutes',
     register: async (server: Hapi.Server) => {
-        // Store prisma client in server app for access in handlers
-        server.app.prisma = prisma;
-
         server.route([
-            // Create user
             {
                 method: 'POST',
                 path: '/api/v1/users',
@@ -27,22 +21,27 @@ const UserRoutePlugin: Hapi.Plugin<null> = {
                     auth: false,
                     validate: {
                         payload: createUserSchema,
-                        failAction: (request, h, err) => {
-                            throw err;
-                        }
+                        failAction: 'error'
                     }
                 }
             },
-            // Get all users
             {
                 method: 'GET',
                 path: '/api/v1/users',
                 handler: getAllUsersHandler,
                 options: {
-                    auth: false
+                    auth: false,
+                    validate: {
+                        query: Joi.object({
+                            page: Joi.number().integer().min(1).default(1),
+                            limit: Joi.number().integer().min(1).max(100).default(10),
+                            role: Joi.string().optional(),
+                            status: Joi.string().optional()
+                        }),
+                        failAction: 'error'
+                    }
                 }
             },
-            // Get single user
             {
                 method: 'GET',
                 path: '/api/v1/users/{id}',
@@ -53,13 +52,10 @@ const UserRoutePlugin: Hapi.Plugin<null> = {
                         params: Joi.object({
                             id: Joi.string().uuid().required()
                         }),
-                        failAction: (request, h, err) => {
-                            throw err;
-                        }
+                        failAction: 'error'
                     }
                 }
             },
-            // Update user
             {
                 method: 'PUT',
                 path: '/api/v1/users/{id}',
@@ -71,13 +67,10 @@ const UserRoutePlugin: Hapi.Plugin<null> = {
                             id: Joi.string().uuid().required()
                         }),
                         payload: updateUserSchema,
-                        failAction: (request, h, err) => {
-                            throw err;
-                        }
+                        failAction: 'error'
                     }
                 }
             },
-            // Delete user
             {
                 method: 'DELETE',
                 path: '/api/v1/users/{id}',
@@ -88,9 +81,7 @@ const UserRoutePlugin: Hapi.Plugin<null> = {
                         params: Joi.object({
                             id: Joi.string().uuid().required()
                         }),
-                        failAction: (request, h, err) => {
-                            throw err;
-                        }
+                        failAction: 'error'
                     }
                 }
             }
@@ -98,48 +89,81 @@ const UserRoutePlugin: Hapi.Plugin<null> = {
     }
 };
 
-// Handler functions
 const createUserHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const payload = request.payload as any;
         const user = await request.server.app.prisma.user.create({
-            data: payload
+            data: request.payload as any,
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                role: true,
+                status: true,
+                createdAt: true
+            }
         });
 
         return h.response({
-            version: '1.0.0',
+            status: 'success',
             data: user
         }).code(201);
     } catch (error: any) {
+        if (error.code === 'P2002') {
+            return h.response({
+                status: 'error',
+                message: 'Email already exists'
+            }).code(409);
+        }
         return h.response({
-            version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Internal server error'
         }).code(500);
     }
 };
 
 const getAllUsersHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const users = await request.server.app.prisma.user.findMany({
-            include: {
-                groups: true,
-                contributions: true,
-                loans: true,
-                payments: true,
-                repayments: true,
-                Referral: true,
-                ProfitShare: true
-            }
-        });
+        const { page, limit, role, status } = request.query;
+        const where = {
+            ...(role && { role }),
+            ...(status && { status })
+        };
+
+        const [users, total] = await Promise.all([
+            request.server.app.prisma.user.findMany({
+                where,
+                skip: (page - 1) * limit,
+                take: limit,
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    role: true,
+                    status: true,
+                    createdAt: true
+                }
+            }),
+            request.server.app.prisma.user.count({ where })
+        ]);
 
         return h.response({
-            version: '1.0.0',
-            data: users
-        }).code(200);
-    } catch (error: any) {
+            status: 'success',
+            data: {
+                users,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.ceil(total / limit)
+                }
+            }
+        });
+    } catch (error) {
         return h.response({
-            version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Internal server error'
         }).code(500);
     }
 };
@@ -149,32 +173,36 @@ const getUserHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) =>
         const { id } = request.params;
         const user = await request.server.app.prisma.user.findUnique({
             where: { id },
-            include: {
-                groups: true,
-                contributions: true,
-                loans: true,
-                payments: true,
-                repayments: true,
-                Referral: true,
-                ProfitShare: true
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                profileImg: true,
+                role: true,
+                status: true,
+                verified: true,
+                createdAt: true,
+                updatedAt: true
             }
         });
 
         if (!user) {
             return h.response({
-                version: '1.0.0',
-                error: 'User not found'
+                status: 'error',
+                message: 'User not found'
             }).code(404);
         }
 
         return h.response({
-            version: '1.0.0',
+            status: 'success',
             data: user
-        }).code(200);
-    } catch (error: any) {
+        });
+    } catch (error) {
         return h.response({
-            version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Internal server error'
         }).code(500);
     }
 };
@@ -182,21 +210,34 @@ const getUserHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) =>
 const updateUserHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
         const { id } = request.params;
-        const payload = request.payload as any;
-
         const user = await request.server.app.prisma.user.update({
             where: { id },
-            data: payload
+            data: request.payload as any,
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                role: true,
+                status: true,
+                updatedAt: true
+            }
         });
 
         return h.response({
-            version: '1.0.0',
+            status: 'success',
             data: user
-        }).code(200);
+        });
     } catch (error: any) {
+        if (error.code === 'P2025') {
+            return h.response({
+                status: 'error',
+                message: 'User not found'
+            }).code(404);
+        }
         return h.response({
-            version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Internal server error'
         }).code(500);
     }
 };
@@ -204,19 +245,24 @@ const updateUserHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit)
 const deleteUserHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
         const { id } = request.params;
-
         await request.server.app.prisma.user.delete({
             where: { id }
         });
 
         return h.response({
-            version: '1.0.0',
+            status: 'success',
             message: 'User deleted successfully'
-        }).code(200);
+        });
     } catch (error: any) {
+        if (error.code === 'P2025') {
+            return h.response({
+                status: 'error',
+                message: 'User not found'
+            }).code(404);
+        }
         return h.response({
-            version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Internal server error'
         }).code(500);
     }
 };
