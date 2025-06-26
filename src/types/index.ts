@@ -1,9 +1,9 @@
-interface IReferral {
-    id: string;
-    userId: string;
-    refreeEmail: string;
-    status: string;
-    bonusAmount: number;
-    createdAt: Date;
-    updatedAt: Date;
-}
+export * from './referral';
+export * from './profit-share';
+export * from './user-group';
+export * from './user';
+export * from './cooperative';
+export * from './contribution';
+export * from './loan';
+export * from './payment';
+export * from './repayment';
