@@ -21,15 +21,6 @@ export interface IMemberOf {
     joinedAt: Date;
 }
 
-export enum UserRole {
-    USER = 'USER',
-    MEMBER = 'MEMBER',
-    ADMIN_1 = 'ADMIN_1',
-    ADMIN_0 = 'ADMIN_0',
-    SUPER_ADMIN = 'SUPER_ADMIN',
-    SYSTEM = 'SYSTEM'
-}
-
 export interface IUser {
     id: string;
     firstName: string;
@@ -45,7 +36,6 @@ export interface IUser {
     termAccepted: boolean;
     authenticatorId: string;
     bankInfo: IBankInfo;
-    role: UserRole;
     createdAt: Date;
     updatedAt: Date;
     groups?: IUserGroup[];

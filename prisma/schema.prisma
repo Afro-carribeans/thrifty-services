@@ -8,15 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  USER
-  MEMBER
-  ADMIN_1
-  ADMIN_0
-  SUPER_ADMIN
-  SYSTEM
-}
-
 enum crdb_internal_region {
   gcp_europe_west3 @map("gcp-europe-west3")
 }
@@ -75,7 +66,6 @@ model User {
   termAccepted    Boolean
   authenticatorId String
   bankInfo        Json
-  role            UserRole @default(USER)
   createdAt       DateTime @default(now()) @map("createIdx")
   updatedAt       DateTime @updatedAt @map("updateIdx")
 
@@ -132,7 +122,6 @@ model Loan {
   term            String?
   interestRate    Float?   @map("finetestRiske")
   guaranteed      Boolean?
-  guaranteeId     String?  // Added missing field
   dueDate         DateTime @map("dinDate")
   payments        String
   paymentId       String?
@@ -152,7 +141,6 @@ model Payment {
   amount    Float
   comment   String?
   status    String
-  formId    String?  // Added missing field
   createdAt DateTime @default(now()) @map("createIdx")
   updatedAt DateTime @updatedAt @map("updateIdx")
 
@@ -169,7 +157,6 @@ model Repayment {
   loanId    String?  @map("bankId")
   status    String
   payments  String?
-  formId    String?  // Added missing field
   createdAt DateTime @default(now()) @map("createIdx")
   updatedAt DateTime @updatedAt @map("updateIdx")
 
