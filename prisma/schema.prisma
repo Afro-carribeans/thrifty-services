@@ -12,12 +12,34 @@ enum crdb_internal_region {
   gcp_europe_west3 @map("gcp-europe-west3")
 }
 
+enum STATUS {
+  PENDING
+  COMPLETED
+  SENT
+  PAID
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+  APPROVED
+}
+
+enum ROLES {
+  ADMIN
+  COOP_MEMBER
+  COOP_ADMIN
+  USER
+  SUPER_ADMIN
+  SYSTEM
+}
+
 model Referral {
   id          String   @id @default(uuid())
   userId      String
   refreeEmail String
-  status      String
+  status      STATUS
   bonusAmount Float
+  archived    Boolean  @default(false)
+  deleted     Boolean  @default(false)
   createdAt   DateTime @default(now()) @map("createIdx")
   updatedAt   DateTime @updatedAt @map("updateIdx")
 
@@ -30,8 +52,10 @@ model ProfitShare {
   userId        String
   amount        Float
   comment       String?
-  status        String
+  status        STATUS
   cooperativeId String
+  archived      Boolean  @default(false)
+  deleted       Boolean  @default(false)
   createdAt     DateTime @default(now()) @map("createIdx")
   updatedAt     DateTime @updatedAt @map("updateIdx")
 
@@ -44,7 +68,9 @@ model UserGroup {
   name        String
   description String?
   creator     String
-  role        String
+  role        ROLES
+  archived    Boolean  @default(false)
+  deleted     Boolean  @default(false)
   createdAt   DateTime @default(now()) @map("createIdx")
   updatedAt   DateTime @updatedAt @map("updateIdx")
 
@@ -61,11 +87,13 @@ model User {
   phone           String
   profileImg      String
   memberOf        Json
-  status          String
+  status          STATUS
   verified        Boolean
   termAccepted    Boolean
   authenticatorId String
   bankInfo        Json
+  archived        Boolean  @default(false)
+  deleted         Boolean  @default(false)
   createdAt       DateTime @default(now()) @map("createIdx")
   updatedAt       DateTime @updatedAt @map("updateIdx")
 
@@ -82,11 +110,13 @@ model Cooperative {
   id            String         @id @default(uuid())
   name          String
   contactPerson String
-  status        String
+  status        STATUS
   verified      Boolean
   description   String?
   isPublic      Boolean        @map("inPublic")
   creator       String
+  archived      Boolean        @default(false)
+  deleted       Boolean        @default(false)
   createdAt     DateTime       @default(now()) @map("createIdx")
   updatedAt     DateTime       @updatedAt @map("updateIdx")
   ProfitShare   ProfitShare[]
@@ -101,9 +131,11 @@ model Contribution {
   isActive      Boolean
   cooperativeId String
   frequency     String
-  status        String
+  status        STATUS
   paymentId     String?
   paymentMethod String?
+  archived      Boolean  @default(false)
+  deleted       Boolean  @default(false)
   createdAt     DateTime @default(now()) @map("createIdx")
   updatedAt     DateTime @updatedAt @map("updateIdx")
 
@@ -117,7 +149,7 @@ model Loan {
   amount          Float
   comment         String?
   purpose         String?
-  status          String
+  status          STATUS
   repaymentPeriod String?
   term            String?
   interestRate    Float?   @map("finetestRiske")
@@ -126,6 +158,8 @@ model Loan {
   payments        String
   paymentId       String?
   cooperativeId   String
+  deleted         Boolean  @default(false)
+  archived        Boolean  @default(false)
   createdAt       DateTime @default(now()) @map("createIdx")
   updatedAt       DateTime @updatedAt @map("updateIdx")
 
@@ -140,7 +174,9 @@ model Payment {
   payerId   String
   amount    Float
   comment   String?
-  status    String
+  status    STATUS
+  deleted   Boolean  @default(false)
+  archived  Boolean  @default(false)
   createdAt DateTime @default(now()) @map("createIdx")
   updatedAt DateTime @updatedAt @map("updateIdx")
 
@@ -155,8 +191,10 @@ model Repayment {
   amount    Float
   dueDate   DateTime @map("dinDate")
   loanId    String?  @map("bankId")
-  status    String
+  status    STATUS
   payments  String?
+  deleted   Boolean  @default(false)
+  archived  Boolean  @default(false)
   createdAt DateTime @default(now()) @map("createIdx")
   updatedAt DateTime @updatedAt @map("updateIdx")
 
