@@ -36,7 +36,7 @@ export const createUserSchema = Joi.object({
     termAccepted: Joi.boolean().required(),
     authenticatorId: Joi.string().optional(),
     bankInfo: bankInfoSchema.optional(),
-    role: Joi.string().valid(...Object.values(UserRole)).default(UserRole.USER)
+    role: Joi.string().valid('USER', 'MEMBER', 'ADMIN-1', 'ADMIN-0', 'SUPER-ADMIN', 'SYSTEM').default('USER')
 });
 
 export const updateUserSchema = Joi.object({
@@ -53,5 +53,5 @@ export const updateUserSchema = Joi.object({
     termAccepted: Joi.boolean().optional(),
     authenticatorId: Joi.string().optional(),
     bankInfo: bankInfoSchema.optional(),
-    role: Joi.string().valid(...Object.values(UserRole)).optional()
+    role: Joi.string().valid('USER', 'MEMBER', 'ADMIN-1', 'ADMIN-0', 'SUPER-ADMIN', 'SYSTEM').default('USER')
 });
