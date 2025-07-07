@@ -1,0 +1,5 @@
+// tsconfig.build.json
+{
+    "extends": "./tsconfig.json",
+    "exclude": ["jest.config.ts", "playwright.config.ts", "tests/**/*"]
+  }
