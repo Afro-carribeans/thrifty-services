@@ -146,19 +146,16 @@ const createUserHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit)
 
 const getAllUsersHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const { page, limit, role, status } = request.query as {
+        const { page, limit, status } = request.query as {
             page: number;
             limit: number;
-            role?: string;
             status?: string;
         };
 
-        // Build where clause dynamically based on schema
         const where: any = {};
         if ('deleted' in request.server.app.prisma.user.fields) {
             where.deleted = false;
         }
-        if (role) where.role = role;
         if (status) where.status = status;
 
         const [users, total] = await Promise.all([
@@ -172,7 +169,6 @@ const getAllUsersHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit
                     firstName: true,
                     lastName: true,
                     phone: true,
-                    role: true,
                     status: true,
                     verified: true,
                     createdAt: true
