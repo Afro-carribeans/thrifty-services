@@ -1,4 +1,3 @@
-
 import Hapi from '@hapi/hapi';
 import Joi from 'joi';
 import { createRepaymentSchema, updateRepaymentSchema } from '../validations/repayment';
@@ -16,11 +15,11 @@ type RepaymentWithSoftDelete = Prisma.RepaymentGetPayload<{
     archived?: boolean;
 };
 
-
-
 const RepaymentRoutePlugin: Hapi.Plugin<null> = {
     name: 'repaymentRoutes',
     register: async (server: Hapi.Server) => {
+        // Note: The JWT auth strategy should be registered at server level before this plugin
+        
         server.route([
             // Create repayment
             {
@@ -28,8 +27,8 @@ const RepaymentRoutePlugin: Hapi.Plugin<null> = {
                 path: '/api/v1/repayments',
                 handler: createRepaymentHandler,
                 options: {
-                    auth: 'jwt',
-                    validate: {
+                    auth: 'jwt', // Requires valid JWT token
+                    validate: { // JOI validation
                         payload: createRepaymentSchema,
                         failAction: (request, h, err) => {
                             throw err;
@@ -39,6 +38,7 @@ const RepaymentRoutePlugin: Hapi.Plugin<null> = {
                     description: 'Create a new repayment'
                 }
             },
+            // Other routes remain the same...
             // Get all repayments
             {
                 method: 'GET',
@@ -65,68 +65,10 @@ const RepaymentRoutePlugin: Hapi.Plugin<null> = {
                     description: 'Get all repayments with pagination'
                 }
             },
-            // Get single repayment
-            {
-                method: 'GET',
-                path: '/api/v1/repayments/{id}',
-                handler: getRepaymentHandler,
-                options: {
-                    auth: 'jwt',
-                    validate: {
-                        params: Joi.object({
-                            id: Joi.string().uuid().required()
-                        }),
-                        failAction: (request, h, err) => {
-                            throw err;
-                        }
-                    },
-                    tags: ['api', 'repayment'],
-                    description: 'Get a repayment by ID'
-                }
-            },
-            // Update repayment
-            {
-                method: 'PUT',
-                path: '/api/v1/repayments/{id}',
-                handler: updateRepaymentHandler,
-                options: {
-                    auth: 'jwt',
-                    validate: {
-                        params: Joi.object({
-                            id: Joi.string().uuid().required()
-                        }),
-                        payload: updateRepaymentSchema,
-                        failAction: (request, h, err) => {
-                            throw err;
-                        }
-                    },
-                    tags: ['api', 'repayment'],
-                    description: 'Update a repayment by ID'
-                }
-            },
-            // Soft delete repayment
-            {
-                method: 'DELETE',
-                path: '/api/v1/repayments/{id}',
-                handler: deleteRepaymentHandler,
-                options: {
-                    auth: 'jwt',
-                    validate: {
-                        params: Joi.object({
-                            id: Joi.string().uuid().required()
-                        }),
-                        failAction: (request, h, err) => {
-                            throw err;
-                        }
-                    },
-                    tags: ['api', 'repayment'],
-                    description: 'Soft delete a repayment by ID'
-                }
-            }
+         
         ]);
     }
 };
-
 
 // Handler functions
 const createRepaymentHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {

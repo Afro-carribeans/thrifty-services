@@ -12,6 +12,8 @@ import PaymentRoutePlugin from './plugins/paymentRoutePlugin';
 import RepaymentRoutePlugin from './plugins/repaymentRoutePlugin';
 import ReferralRoutePlugin from './plugins/referralRoutePlugin';
 import ProfitShareRoutePlugin from './plugins/profitShareRoutePlugin';
+import AuthPlugin from './plugins/authPlugin';
+
 
 // Load environment variables
 dotenv.config();
@@ -43,7 +45,9 @@ const init = async () => {
         await server.register([
             require('@hapi/inert'), 
             prismaPlugin, 
-            healthcheck,         
+            healthcheck, 
+            AuthPlugin,
+
             // Route plugins
             UserRoutePlugin,
             CooperativeRoutePlugin,
