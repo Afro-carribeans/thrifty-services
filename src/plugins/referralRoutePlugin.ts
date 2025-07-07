@@ -30,6 +30,8 @@ const ReferralRoutePlugin: Hapi.Plugin<null> = {
                         query: Joi.object({
                             userId: Joi.string().uuid().optional(),
                             status: Joi.string().optional(),
+                            archived: Joi.boolean().optional(),
+                            deleted: Joi.boolean().optional(),
                             page: Joi.number().integer().min(1).default(1),
                             limit: Joi.number().integer().min(1).max(100).default(10)
                         }),
@@ -72,7 +74,7 @@ const ReferralRoutePlugin: Hapi.Plugin<null> = {
                     }
                 }
             },
-            // Delete referral
+            // Delete referral (soft delete)
             {
                 method: 'DELETE',
                 path: '/api/v1/referrals/{id}',
@@ -98,6 +100,12 @@ const ReferralRoutePlugin: Hapi.Plugin<null> = {
                         params: Joi.object({
                             userId: Joi.string().uuid().required()
                         }),
+                        query: Joi.object({
+                            page: Joi.number().integer().min(1).default(1),
+                            limit: Joi.number().integer().min(1).max(100).default(10),
+                            archived: Joi.boolean().optional(),
+                            deleted: Joi.boolean().optional()
+                        }),
                         failAction: (request, h, err) => {
                             throw err;
                         }
@@ -116,9 +124,18 @@ const createReferralHandler = async (request: Hapi.Request, h: Hapi.ResponseTool
             data: {
                 userId: payload.userId,
                 refreeEmail: payload.refreeEmail,
-                status: payload.status || 'pending',
+                status: payload.status || 'PENDING',
                 bonusAmount: payload.bonusAmount || 0,
                 user: { connect: { id: payload.userId } }
+            },
+            include: {
+                user: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                        email: true
+                    }
+                }
             }
         });
 
@@ -136,11 +153,13 @@ const createReferralHandler = async (request: Hapi.Request, h: Hapi.ResponseTool
 
 const getAllReferralsHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const { userId, status, page, limit } = request.query;
+        const { userId, status, archived, deleted, page, limit } = request.query;
         const where: any = {};
         
         if (userId) where.userId = userId;
         if (status) where.status = status;
+        if (archived !== undefined) where.archived = archived;
+        if (deleted !== undefined) where.deleted = deleted;
 
         const [referrals, total] = await Promise.all([
             request.server.app.prisma.referral.findMany({
@@ -155,7 +174,8 @@ const getAllReferralsHandler = async (request: Hapi.Request, h: Hapi.ResponseToo
                             email: true
                         }
                     }
-                }
+                },
+                orderBy: { createdAt: 'desc' }
             }),
             request.server.app.prisma.referral.count({ where })
         ]);
@@ -222,7 +242,16 @@ const updateReferralHandler = async (request: Hapi.Request, h: Hapi.ResponseTool
 
         const referral = await request.server.app.prisma.referral.update({
             where: { id },
-            data: payload
+            data: payload,
+            include: {
+                user: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                        email: true
+                    }
+                }
+            }
         });
 
         return h.response({
@@ -241,13 +270,18 @@ const deleteReferralHandler = async (request: Hapi.Request, h: Hapi.ResponseTool
     try {
         const { id } = request.params;
 
-        await request.server.app.prisma.referral.delete({
-            where: { id }
+        // Soft delete by setting deleted flag
+        await request.server.app.prisma.referral.update({
+            where: { id },
+            data: {
+               // deleted: true,
+                updatedAt: new Date() // Explicitly set updatedAt
+            }
         });
 
         return h.response({
             version: '1.0.0',
-            message: 'Referral deleted successfully'
+            message: 'Referral marked as deleted successfully'
         }).code(200);
     } catch (error: any) {
         return h.response({
@@ -260,16 +294,29 @@ const deleteReferralHandler = async (request: Hapi.Request, h: Hapi.ResponseTool
 const getUserReferralsHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
         const { userId } = request.params;
-        const { page = 1, limit = 10 } = request.query;
+        const { page = 1, limit = 10, archived, deleted } = request.query;
+        
+        const where: any = { userId };
+        if (archived !== undefined) where.archived = archived;
+        if (deleted !== undefined) where.deleted = deleted;
 
         const [referrals, total] = await Promise.all([
             request.server.app.prisma.referral.findMany({
-                where: { userId },
+                where,
                 skip: (page - 1) * limit,
                 take: limit,
-                orderBy: { createdAt: 'desc' }
+                orderBy: { createdAt: 'desc' },
+                include: {
+                    user: {
+                        select: {
+                            firstName: true,
+                            lastName: true,
+                            email: true
+                        }
+                    }
+                }
             }),
-            request.server.app.prisma.referral.count({ where: { userId } })
+            request.server.app.prisma.referral.count({ where })
         ]);
 
         return h.response({

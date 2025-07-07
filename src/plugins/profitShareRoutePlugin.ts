@@ -1,6 +1,8 @@
 import Hapi from '@hapi/hapi';
 import Joi from 'joi';
 import { createProfitShareSchema, updateProfitShareSchema } from '../validations/profitShare';
+import { STATUS } from '../types';
+import { Prisma } from '@prisma/client';
 
 const ProfitShareRoutePlugin: Hapi.Plugin<null> = {
     name: 'profitShareRoutes',
@@ -17,6 +19,10 @@ const ProfitShareRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
+                    },
+                    auth: {
+                        strategy: 'jwt',
+                        scope: ['COOP_ADMIN', 'ADMIN']
                     }
                 }
             },
@@ -30,13 +36,19 @@ const ProfitShareRoutePlugin: Hapi.Plugin<null> = {
                         query: Joi.object({
                             userId: Joi.string().uuid().optional(),
                             cooperativeId: Joi.string().uuid().optional(),
-                            status: Joi.string().optional(),
+                            status: Joi.string().valid(...Object.values(STATUS)).optional(),
+                            archived: Joi.boolean().optional(),
+                            deleted: Joi.boolean().optional(),
                             page: Joi.number().integer().min(1).default(1),
                             limit: Joi.number().integer().min(1).max(100).default(10)
                         }),
                         failAction: (request, h, err) => {
                             throw err;
                         }
+                    },
+                    auth: {
+                        strategy: 'jwt',
+                        scope: ['COOP_ADMIN', 'ADMIN', 'COOP_MEMBER']
                     }
                 }
             },
@@ -53,6 +65,10 @@ const ProfitShareRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
+                    },
+                    auth: {
+                        strategy: 'jwt',
+                        scope: ['COOP_ADMIN', 'ADMIN', 'COOP_MEMBER']
                     }
                 }
             },
@@ -70,10 +86,14 @@ const ProfitShareRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
+                    },
+                    auth: {
+                        strategy: 'jwt',
+                        scope: ['COOP_ADMIN', 'ADMIN']
                     }
                 }
             },
-            // Delete profit share
+            // Soft delete profit share
             {
                 method: 'DELETE',
                 path: '/api/v1/profit-shares/{id}',
@@ -86,6 +106,10 @@ const ProfitShareRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
+                    },
+                    auth: {
+                        strategy: 'jwt',
+                        scope: ['COOP_ADMIN', 'ADMIN']
                     }
                 }
             },
@@ -99,9 +123,19 @@ const ProfitShareRoutePlugin: Hapi.Plugin<null> = {
                         params: Joi.object({
                             cooperativeId: Joi.string().uuid().required()
                         }),
+                        query: Joi.object({
+                            archived: Joi.boolean().optional(),
+                            deleted: Joi.boolean().optional(),
+                            page: Joi.number().integer().min(1).default(1),
+                            limit: Joi.number().integer().min(1).max(100).default(10)
+                        }),
                         failAction: (request, h, err) => {
                             throw err;
                         }
+                    },
+                    auth: {
+                        strategy: 'jwt',
+                        scope: ['COOP_ADMIN', 'ADMIN', 'COOP_MEMBER']
                     }
                 }
             }
@@ -112,13 +146,31 @@ const ProfitShareRoutePlugin: Hapi.Plugin<null> = {
 // Handler functions
 const createProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const payload = request.payload as any;
-        const profitShare = await request.server.app.prisma.profitShare.create({
-            data: payload,
-            include: {
-                user: true,
-                cooperative: true
-            }
+        const payload = request.payload as Omit<Prisma.ProfitShareCreateInput, 'archived' | 'deleted'>;
+        const profitShare = await request.server.app.prisma.$transaction(async (prisma) => {
+            return await prisma.profitShare.create({
+                data: {
+                    ...payload,
+                    status: payload.status || 'PENDING'
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true
+                        }
+                    },
+                    cooperative: {
+                        select: {
+                            id: true,
+                            name: true,
+                            contactPerson: true
+                        }
+                    }
+                }
+            });
         });
 
         return h.response({
@@ -126,31 +178,48 @@ const createProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseT
             data: profitShare
         }).code(201);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            error: 'Failed to create profit share'
         }).code(500);
     }
 };
 
 const getAllProfitSharesHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const { userId, cooperativeId, status, page, limit } = request.query;
-        const where = {
-            ...(userId && { userId }),
-            ...(cooperativeId && { cooperativeId }),
-            ...(status && { status })
-        };
+        const { userId, cooperativeId, status, archived, deleted, page, limit } = request.query;
+        const where: Prisma.ProfitShareWhereInput = {};
 
-        const [profitShares, total] = await Promise.all([
+        if (userId) where.userId = userId;
+        if (cooperativeId) where.cooperativeId = cooperativeId;
+        if (status) where.status = status;
+        if (archived !== undefined) (where as any).archived = archived;
+        if (deleted !== undefined) (where as any).deleted = deleted;
+
+        const [profitShares, total] = await request.server.app.prisma.$transaction([
             request.server.app.prisma.profitShare.findMany({
                 where,
-                skip: (page - 1) * limit,
-                take: limit,
+                skip: (Number(page) - 1) * Number(limit),
+                take: Number(limit),
                 include: {
-                    user: true,
-                    cooperative: true
-                }
+                    user: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true
+                        }
+                    },
+                    cooperative: {
+                        select: {
+                            id: true,
+                            name: true,
+                            contactPerson: true
+                        }
+                    }
+                },
+                orderBy: { createdAt: 'desc' }
             }),
             request.server.app.prisma.profitShare.count({ where })
         ]);
@@ -159,15 +228,19 @@ const getAllProfitSharesHandler = async (request: Hapi.Request, h: Hapi.Response
             version: '1.0.0',
             data: {
                 items: profitShares,
-                total,
-                page,
-                limit
+                meta: {
+                    total,
+                    page: Number(page),
+                    limit: Number(limit),
+                    totalPages: Math.ceil(total / Number(limit))
+                }
             }
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            error: 'Failed to fetch profit shares'
         }).code(500);
     }
 };
@@ -178,8 +251,21 @@ const getProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseTool
         const profitShare = await request.server.app.prisma.profitShare.findUnique({
             where: { id },
             include: {
-                user: true,
-                cooperative: true
+                user: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true
+                    }
+                },
+                cooperative: {
+                    select: {
+                        id: true,
+                        name: true,
+                        contactPerson: true
+                    }
+                }
             }
         });
 
@@ -195,9 +281,10 @@ const getProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseTool
             data: profitShare
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            error: 'Failed to fetch profit share'
         }).code(500);
     }
 };
@@ -205,15 +292,33 @@ const getProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseTool
 const updateProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
         const { id } = request.params;
-        const payload = request.payload as any;
+        const payload = request.payload as Omit<Prisma.ProfitShareUpdateInput, 'archived' | 'deleted'>;
 
-        const profitShare = await request.server.app.prisma.profitShare.update({
-            where: { id },
-            data: payload,
-            include: {
-                user: true,
-                cooperative: true
-            }
+        const profitShare = await request.server.app.prisma.$transaction(async (prisma) => {
+            return await prisma.profitShare.update({
+                where: { id },
+                data: {
+                    ...payload,
+                    updatedAt: new Date()
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true
+                        }
+                    },
+                    cooperative: {
+                        select: {
+                            id: true,
+                            name: true,
+                            contactPerson: true
+                        }
+                    }
+                }
+            });
         });
 
         return h.response({
@@ -221,9 +326,10 @@ const updateProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseT
             data: profitShare
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            error: 'Failed to update profit share'
         }).code(500);
     }
 };
@@ -232,18 +338,26 @@ const deleteProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseT
     try {
         const { id } = request.params;
 
-        await request.server.app.prisma.profitShare.delete({
-            where: { id }
+        // Soft delete by setting deleted flag
+        await request.server.app.prisma.$transaction(async (prisma) => {
+            await prisma.profitShare.update({
+                where: { id },
+                data: {
+                    deleted: true,
+                    updatedAt: new Date()
+                } as unknown as Prisma.ProfitShareUpdateInput
+            });
         });
 
         return h.response({
             version: '1.0.0',
-            message: 'Profit share deleted successfully'
+            message: 'Profit share marked as deleted successfully'
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            error: 'Failed to delete profit share'
         }).code(500);
     }
 };
@@ -251,33 +365,51 @@ const deleteProfitShareHandler = async (request: Hapi.Request, h: Hapi.ResponseT
 const getCooperativeProfitSharesHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
         const { cooperativeId } = request.params;
-        const { page = 1, limit = 10 } = request.query;
+        const { archived, deleted, page, limit } = request.query;
 
-        const [profitShares, total] = await Promise.all([
+        const where: Prisma.ProfitShareWhereInput = {
+            cooperativeId,
+            ...(archived !== undefined && { archived: archived as boolean }),
+            ...(deleted !== undefined && { deleted: deleted as boolean })
+        };
+
+        const [profitShares, total] = await request.server.app.prisma.$transaction([
             request.server.app.prisma.profitShare.findMany({
-                where: { cooperativeId },
-                skip: (page - 1) * limit,
-                take: limit,
+                where,
+                skip: (Number(page) - 1) * Number(limit),
+                take: Number(limit),
                 include: {
-                    user: true
-                }
+                    user: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true
+                        }
+                    }
+                },
+                orderBy: { createdAt: 'desc' }
             }),
-            request.server.app.prisma.profitShare.count({ where: { cooperativeId } })
+            request.server.app.prisma.profitShare.count({ where })
         ]);
 
         return h.response({
             version: '1.0.0',
             data: {
                 items: profitShares,
-                total,
-                page,
-                limit
+                meta: {
+                    total,
+                    page: Number(page),
+                    limit: Number(limit),
+                    totalPages: Math.ceil(total / Number(limit))
+                }
             }
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            error: 'Failed to fetch cooperative profit shares'
         }).code(500);
     }
 };

@@ -30,7 +30,9 @@ const ContributionRoutePlugin: Hapi.Plugin<null> = {
                         query: Joi.object({
                             userId: Joi.string().uuid().optional(),
                             cooperativeId: Joi.string().uuid().optional(),
-                            status: Joi.string().optional(),
+                            status: Joi.string().valid('PENDING', 'COMPLETED', 'SENT', 'PAID', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED', 'APPROVED').optional(),
+                            isActive: Joi.boolean().optional(),
+                            archived: Joi.boolean().optional(),
                             page: Joi.number().integer().min(1).default(1),
                             limit: Joi.number().integer().min(1).max(100).default(10)
                         }),
@@ -73,7 +75,7 @@ const ContributionRoutePlugin: Hapi.Plugin<null> = {
                     }
                 }
             },
-            // Delete contribution
+            // Delete contribution (soft delete)
             {
                 method: 'DELETE',
                 path: '/api/v1/contributions/{id}',
@@ -98,7 +100,11 @@ const createContributionHandler = async (request: Hapi.Request, h: Hapi.Response
     try {
         const payload = request.payload as any;
         const contribution = await request.server.app.prisma.contribution.create({
-            data: payload
+            data: {
+                ...payload,
+                archived: false,
+                deleted: false
+            }
         });
 
         return h.response({
@@ -115,12 +121,14 @@ const createContributionHandler = async (request: Hapi.Request, h: Hapi.Response
 
 const getAllContributionsHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const { userId, cooperativeId, status, page, limit } = request.query;
+        const { userId, cooperativeId, status, isActive, archived, page, limit } = request.query;
         
-        const where = {
+        const where: any = {
             ...(userId && { userId }),
             ...(cooperativeId && { cooperativeId }),
-            ...(status && { status })
+            ...(status && { status }),
+            ...(isActive !== undefined && { isActive }),
+            ...(archived !== undefined && { archived })
         };
 
         const [contributions, total] = await Promise.all([
@@ -129,8 +137,21 @@ const getAllContributionsHandler = async (request: Hapi.Request, h: Hapi.Respons
                 skip: (page - 1) * limit,
                 take: limit,
                 include: {
-                    user: true,
-                    cooperative: true
+                    user: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true
+                        }
+                    },
+                    cooperative: {
+                        select: {
+                            id: true,
+                            name: true,
+                            contactPerson: true
+                        }
+                    }
                 }
             }),
             request.server.app.prisma.contribution.count({ where })
@@ -160,8 +181,21 @@ const getContributionHandler = async (request: Hapi.Request, h: Hapi.ResponseToo
         const contribution = await request.server.app.prisma.contribution.findUnique({
             where: { id },
             include: {
-                user: true,
-                cooperative: true
+                user: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true
+                    }
+                },
+                cooperative: {
+                    select: {
+                        id: true,
+                        name: true,
+                        contactPerson: true
+                    }
+                }
             }
         });
 
@@ -189,6 +223,18 @@ const updateContributionHandler = async (request: Hapi.Request, h: Hapi.Response
         const { id } = request.params;
         const payload = request.payload as any;
 
+        // Ensure we don't update deleted contributions
+        const existing = await request.server.app.prisma.contribution.findUnique({
+            where: { id }
+        });
+
+        if (!existing) {
+            return h.response({
+                version: '1.0.0',
+                error: 'Contribution not found'
+            }).code(404);
+        }
+
         const contribution = await request.server.app.prisma.contribution.update({
             where: { id },
             data: payload
@@ -210,8 +256,14 @@ const deleteContributionHandler = async (request: Hapi.Request, h: Hapi.Response
     try {
         const { id } = request.params;
 
-        await request.server.app.prisma.contribution.delete({
-            where: { id }
+        // Soft delete instead of hard delete
+        await request.server.app.prisma.contribution.update({
+            where: { id },
+            data: {
+                isActive: false,
+                // Ensure the archived property exists in the Prisma schema or remove it if unnecessary
+                
+            }
         });
 
         return h.response({

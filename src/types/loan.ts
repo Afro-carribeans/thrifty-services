@@ -1,11 +1,12 @@
-import { IUser, ICooperative, IRepayment } from './index';
+import { IUser, ICooperative, IRepayment, STATUS } from './index';
+
 export interface ILoan {
   id: string;
   beneficiaryId: string;
   amount: number;
   comment?: string;
   purpose?: string;
-  status: string;
+  status: STATUS;
   repaymentPeriod?: string;
   term?: string;
   interestRate?: number;
@@ -14,6 +15,8 @@ export interface ILoan {
   payments: string;
   paymentId?: string;
   cooperativeId: string;
+  archived: boolean;
+  deleted: boolean;
   createdAt: Date;
   updatedAt: Date;
   beneficiary?: IUser;
@@ -21,5 +24,7 @@ export interface ILoan {
   Repayment?: IRepayment[];
 }
 
-export type CreateLoanDto = Omit<ILoan, 'id' | 'createdAt' | 'updatedAt' | 'beneficiary' | 'cooperative' | 'Repayment'>;
+export type CreateLoanDto = Omit<ILoan, 
+  'id' | 'createdAt' | 'updatedAt' | 'beneficiary' | 'cooperative' | 'Repayment' | 'archived' | 'deleted'
+>;
 export type UpdateLoanDto = Partial<CreateLoanDto>;

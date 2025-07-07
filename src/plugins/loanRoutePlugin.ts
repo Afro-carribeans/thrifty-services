@@ -1,6 +1,20 @@
 import Hapi from '@hapi/hapi';
 import Joi from 'joi';
 import { createLoanSchema, updateLoanSchema } from '../validations/loan';
+import { STATUS } from '../types';
+import { Prisma } from '@prisma/client';
+
+// Extend the Loan type to include soft delete fields
+type LoanWithSoftDelete = Prisma.LoanGetPayload<{
+    include: {
+        beneficiary: true;
+        cooperative: true;
+        Repayment: true;
+    };
+}> & {
+    deleted?: boolean;
+    archived?: boolean;
+};
 
 const LoanRoutePlugin: Hapi.Plugin<null> = {
     name: 'loanRoutes',
@@ -17,7 +31,9 @@ const LoanRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
-                    }
+                    },
+                    tags: ['api', 'loan'],
+                    description: 'Create a new loan'
                 }
             },
             // Get all loans
@@ -30,14 +46,18 @@ const LoanRoutePlugin: Hapi.Plugin<null> = {
                         query: Joi.object({
                             beneficiaryId: Joi.string().uuid().optional(),
                             cooperativeId: Joi.string().uuid().optional(),
-                            status: Joi.string().optional(),
+                            status: Joi.string().valid(...Object.values(STATUS)).optional(),
+                            archived: Joi.boolean().optional(),
+                            deleted: Joi.boolean().optional(),
                             page: Joi.number().integer().min(1).default(1),
                             limit: Joi.number().integer().min(1).max(100).default(10)
                         }),
                         failAction: (request, h, err) => {
                             throw err;
                         }
-                    }
+                    },
+                    tags: ['api', 'loan'],
+                    description: 'Get all loans with pagination'
                 }
             },
             // Get single loan
@@ -53,7 +73,9 @@ const LoanRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
-                    }
+                    },
+                    tags: ['api', 'loan'],
+                    description: 'Get a loan by ID'
                 }
             },
             // Update loan
@@ -70,10 +92,12 @@ const LoanRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
-                    }
+                    },
+                    tags: ['api', 'loan'],
+                    description: 'Update a loan by ID'
                 }
             },
-            // Delete loan
+            // Delete loan (soft delete)
             {
                 method: 'DELETE',
                 path: '/api/v1/loans/{id}',
@@ -86,7 +110,9 @@ const LoanRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
-                    }
+                    },
+                    tags: ['api', 'loan'],
+                    description: 'Soft delete a loan by ID'
                 }
             },
             // Get loan repayments
@@ -102,7 +128,9 @@ const LoanRoutePlugin: Hapi.Plugin<null> = {
                         failAction: (request, h, err) => {
                             throw err;
                         }
-                    }
+                    },
+                    tags: ['api', 'loan'],
+                    description: 'Get all repayments for a loan'
                 }
             }
         ]);
@@ -112,11 +140,13 @@ const LoanRoutePlugin: Hapi.Plugin<null> = {
 // Handler functions
 const createLoanHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const payload = request.payload as any;
+        const payload = request.payload as Omit<Prisma.LoanCreateInput, 'archived' | 'deleted'>;
         const loan = await request.server.app.prisma.loan.create({
             data: {
                 ...payload,
-                dueDate: new Date(payload.dueDate) // Ensure proper date format
+                dueDate: new Date(payload.dueDate),
+                status: payload.status || 'PENDING',
+                // archived and deleted will use their default values from Prisma schema
             },
             include: {
                 beneficiary: true,
@@ -126,31 +156,36 @@ const createLoanHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit)
 
         return h.response({
             version: '1.0.0',
+            status: 'success',
             data: loan
         }).code(201);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Failed to create loan',
+            details: error.message
         }).code(500);
     }
 };
 
 const getAllLoansHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
-        const { beneficiaryId, cooperativeId, status, page, limit } = request.query;
-        
-        const where = {
+        const { beneficiaryId, cooperativeId, status, archived, deleted, page, limit } = request.query;
+        const where: Prisma.LoanWhereInput = {
             ...(beneficiaryId && { beneficiaryId }),
             ...(cooperativeId && { cooperativeId }),
-            ...(status && { status })
+            ...(status && { status }),
+            ...(archived !== undefined && { archived }),
+            ...(deleted !== undefined && { deleted })
         };
 
         const [loans, total] = await Promise.all([
             request.server.app.prisma.loan.findMany({
                 where,
-                skip: (page - 1) * limit,
-                take: limit,
+                skip: (Number(page) - 1) * Number(limit),
+                take: Number(limit),
                 include: {
                     beneficiary: {
                         select: {
@@ -177,20 +212,24 @@ const getAllLoansHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit
 
         return h.response({
             version: '1.0.0',
+            status: 'success',
             data: {
-                loans,
+                items: loans,
                 meta: {
                     total,
-                    page,
-                    limit,
-                    totalPages: Math.ceil(total / limit)
+                    page: Number(page),
+                    limit: Number(limit),
+                    totalPages: Math.ceil(total / Number(limit))
                 }
             }
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Failed to fetch loans',
+            details: error.message
         }).code(500);
     }
 };
@@ -223,23 +262,28 @@ const getLoanHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) =>
                     }
                 }
             }
-        });
+        }) as LoanWithSoftDelete | null;
 
-        if (!loan) {
+        if (!loan || loan.deleted) {
             return h.response({
                 version: '1.0.0',
-                error: 'Loan not found'
+                status: 'error',
+                message: 'Loan not found'
             }).code(404);
         }
 
         return h.response({
             version: '1.0.0',
+            status: 'success',
             data: loan
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Failed to fetch loan',
+            details: error.message
         }).code(500);
     }
 };
@@ -247,16 +291,32 @@ const getLoanHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) =>
 const updateLoanHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit) => {
     try {
         const { id } = request.params;
-        const payload = request.payload as any;
+        const payload = request.payload as Omit<Prisma.LoanUpdateInput, 'archived' | 'deleted'>;
+
+        // Check if loan exists and is not deleted
+        const existingLoan = await request.server.app.prisma.loan.findUnique({
+            where: { id }
+        }) as LoanWithSoftDelete | null;
+
+        if (!existingLoan || existingLoan.deleted) {
+            return h.response({
+                version: '1.0.0',
+                status: 'error',
+                message: 'Loan not found'
+            }).code(404);
+        }
 
         // Handle date conversion if dueDate is being updated
         if (payload.dueDate) {
-            payload.dueDate = new Date(payload.dueDate);
+            payload.dueDate = new Date(payload.dueDate as string);
         }
 
         const loan = await request.server.app.prisma.loan.update({
             where: { id },
-            data: payload,
+            data: {
+                ...payload,
+                updatedAt: new Date()
+            },
             include: {
                 beneficiary: true,
                 cooperative: true
@@ -265,12 +325,16 @@ const updateLoanHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit)
 
         return h.response({
             version: '1.0.0',
+            status: 'success',
             data: loan
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Failed to update loan',
+            details: error.message
         }).code(500);
     }
 };
@@ -279,7 +343,20 @@ const deleteLoanHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit)
     try {
         const { id } = request.params;
 
-        // First check if there are any repayments
+        // Check if loan exists
+        const existingLoan = await request.server.app.prisma.loan.findUnique({
+            where: { id }
+        }) as LoanWithSoftDelete | null;
+
+        if (!existingLoan || existingLoan.deleted) {
+            return h.response({
+                version: '1.0.0',
+                status: 'error',
+                message: 'Loan not found'
+            }).code(404);
+        }
+
+        // Check if there are any repayments
         const repayments = await request.server.app.prisma.repayment.count({
             where: { loanId: id }
         });
@@ -287,22 +364,32 @@ const deleteLoanHandler = async (request: Hapi.Request, h: Hapi.ResponseToolkit)
         if (repayments > 0) {
             return h.response({
                 version: '1.0.0',
-                error: 'Cannot delete loan with existing repayments'
+                status: 'error',
+                message: 'Cannot delete loan with existing repayments'
             }).code(400);
         }
 
-        await request.server.app.prisma.loan.delete({
-            where: { id }
+        // Soft delete by setting deleted flag
+        await request.server.app.prisma.loan.update({
+            where: { id },
+            data: {
+                deleted: true,
+                updatedAt: new Date()
+            } as unknown as Prisma.LoanUpdateInput
         });
 
         return h.response({
             version: '1.0.0',
-            message: 'Loan deleted successfully'
+            status: 'success',
+            message: 'Loan marked as deleted successfully'
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Failed to delete loan',
+            details: error.message
         }).code(500);
     }
 };
@@ -313,14 +400,14 @@ const getLoanRepaymentsHandler = async (request: Hapi.Request, h: Hapi.ResponseT
         
         // First verify loan exists
         const loan = await request.server.app.prisma.loan.findUnique({
-            where: { id },
-            select: { id: true }
-        });
+            where: { id }
+        }) as LoanWithSoftDelete | null;
 
-        if (!loan) {
+        if (!loan || loan.deleted) {
             return h.response({
                 version: '1.0.0',
-                error: 'Loan not found'
+                status: 'error',
+                message: 'Loan not found'
             }).code(404);
         }
 
@@ -342,12 +429,16 @@ const getLoanRepaymentsHandler = async (request: Hapi.Request, h: Hapi.ResponseT
 
         return h.response({
             version: '1.0.0',
+            status: 'success',
             data: repayments
         }).code(200);
     } catch (error: any) {
+        request.log('error', error);
         return h.response({
             version: '1.0.0',
-            error: error.message
+            status: 'error',
+            message: 'Failed to fetch loan repayments',
+            details: error.message
         }).code(500);
     }
 };
