@@ -14,7 +14,6 @@ import ReferralRoutePlugin from './plugins/referralRoutePlugin';
 import ProfitShareRoutePlugin from './plugins/profitShareRoutePlugin';
 import AuthPlugin from './plugins/authPlugin';
 
-
 // Load environment variables
 dotenv.config();
 
@@ -47,7 +46,6 @@ const init = async () => {
             prismaPlugin, 
             healthcheck, 
             AuthPlugin,
-
             // Route plugins
             UserRoutePlugin,
             CooperativeRoutePlugin,
